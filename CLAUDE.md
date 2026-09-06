@@ -34,6 +34,13 @@ apply-system.sh      # privileged half, installed to libexec, run via run0
 nix/package.nix      # buildRustPackage; wraps each binary separately
 nix/icons.nix        # runCommand + resvg; colours are arguments
 nix/hm-module.nix    # services.nixos-update-manager
+nix/docs.nix         # zola build of docs/, a plain callPackage derivation
+docs/                # the documentation site (Zola), deployed to GitHub Pages
+├── config.toml      # base_url is a *sub-path* of calebstew.art
+├── content/         # _index.md (overview), installation.md, configuration.md
+├── templates/       # base + page + index + toc, minijinja
+└── static/style.css # same palette as calebstew.art
+.github/workflows/pages.yml   # nix build .#docs -> upload-pages-artifact -> deploy-pages
 ```
 
 ## Build Commands
@@ -41,9 +48,10 @@ nix/hm-module.nix    # services.nixos-update-manager
 ```bash
 nix build                 # the daemon (runs cargo test in the sandbox)
 nix build .#nixos-update-manager-icons
-nix flake check           # both packages + treefmt --ci
+nix build .#docs          # the documentation site
+nix flake check           # both packages + the docs + treefmt --ci
 nix fmt                   # nixfmt + rustfmt
-nix develop               # cargo/rustc/clippy/rust-analyzer + GTK stack
+nix develop               # cargo/rustc/clippy/rust-analyzer + zola + GTK stack
 cargo test                # inside the dev shell
 ```
 
@@ -62,8 +70,8 @@ so `cargo run -- --flake <checkout>` behaves like the installed daemon.
 - The home module takes `self` and is wrapped in flake.nix with a `_file`, so
   its options keep a source position for consumers' option documentation.
   Keep `defaultText` values as strings, never derivations.
-- Nothing in `nix/` reads flake inputs; `nix/package.nix` and `nix/icons.nix`
-  are plain `callPackage` derivations.
+- Nothing in `nix/` reads flake inputs; `nix/package.nix`, `nix/icons.nix` and
+  `nix/docs.nix` are plain `callPackage` derivations.
 
 ## Check, build and apply
 
@@ -325,3 +333,43 @@ null by default so the icons package's own palette applies; `iconPackage` is
 the escape hatch, and it is the one that matters while the module is enabled:
 the unit always passes `--icon-dir`, so overriding `nixos-update-manager-icons`
 on `package` only changes the binary's standalone default.
+
+## Documentation site
+
+`docs/` is a Zola site published to GitHub Pages at
+<https://calebstew.art/nixos-update-manager>, and linked from the landing page
+in `calebstewart.github.io`'s `config.toml`. It documents three things and
+stops there: what the daemon is, how to install it, and every option. The
+design notes live here in CLAUDE.md, not on the site.
+
+Things that are the way they are on purpose:
+
+- **Pages is on the Actions source, not a branch.** `.github/workflows/pages.yml`
+  runs `nix build .#docs` and hands `result/` to `upload-pages-artifact`, so
+  nothing is ever committed to a `gh-pages` branch and CI builds the same
+  derivation you preview with. The store tree is copied out with `cp -rL`
+  first: the upload action will not follow the symlink, and the store is
+  read-only.
+- **A *project* Pages site, so `base_url` carries a sub-path.** Every internal
+  link goes through `get_url` or a `@/`-prefixed markdown link, both rewritten
+  against it. A hand-written `/foo/` would resolve against the domain root and
+  land on the landing page's 404.
+- **Zola 0.23 is minijinja, not Tera**, so there is no `{% import %}` and no
+  macros: `templates/toc.html` is an `{% include %}` with the caller setting
+  `toc_entries`. `current_url` is what the nav compares against, which keeps it
+  out of the page/section distinction.
+- **Syntax highlighting is `style = "class"`** with a light and a dark theme.
+  The generated stylesheets are named after zola's highlighter
+  (`giallo-light.css`, `giallo-dark.css`) and every span carries *both*
+  classes, so both files are linked and the dark one is gated on
+  `prefers-color-scheme`.
+- **`SSL_CERT_FILE` is set in `nix/docs.nix`.** Zola 0.23 builds a reqwest
+  client up front for `load_data` and panics when the sandbox has no CA
+  certificates. The site fetches nothing; this only lets the client construct.
+- **The palette is `calebstew.art`'s**, token for token, so the docs read as
+  part of that site rather than as a separate one.
+- **The overview leads with a warning, and Zola renders it bare.**
+  `github_alerts = true` turns `> [!WARNING]` into a blockquote carrying
+  `markdown-alert-warning` and *no label of its own*, so the word "Warning" is
+  a `::before` in the stylesheet. The README carries the same text, where
+  GitHub renders the alert itself.

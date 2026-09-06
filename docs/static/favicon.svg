@@ -1,0 +1,17 @@
+<!--
+  The daemon's own idle mark, in the site's accent colour: an arrow landing on
+  a baseline. Same silhouette every status icon shares, so the tab matches the
+  tray. `currentColor` plus a media query is what lets one file serve both
+  schemes -- a favicon gets no stylesheet of its own.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"
+     fill="none" stroke="currentColor" stroke-width="2"
+     stroke-linecap="round" stroke-linejoin="round">
+  <style>
+    svg { color: #9a5b2e; }
+    @media (prefers-color-scheme: dark) { svg { color: #d9a066; } }
+  </style>
+  <path d="M12 3v10"/>
+  <path d="m7 10 5 5 5-5"/>
+  <path d="M4 18.5h16"/>
+</svg>

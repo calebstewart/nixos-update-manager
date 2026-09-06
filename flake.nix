@@ -26,6 +26,10 @@
         };
       };
 
+      # The documentation site. Deliberately outside mkPackages: the overlay
+      # adds what a consumer installs, and nobody installs a website.
+      mkDocs = pkgs: pkgs.callPackage ./nix/docs.nix { };
+
       formatter =
         pkgs:
         pkgs.nixfmt-tree.override {
@@ -55,7 +59,11 @@
         let
           packages = mkPackages pkgs;
         in
-        packages // { default = packages.nixos-update-manager; }
+        packages
+        // {
+          default = packages.nixos-update-manager;
+          docs = mkDocs pkgs;
+        }
       );
 
       overlays.default = final: _prev: mkPackages final;
@@ -70,6 +78,10 @@
         pkgs:
         mkPackages pkgs
         // {
+          # A broken template or a dead `@/` link fails the build, so the site
+          # cannot go stale unnoticed between pushes to it.
+          docs = mkDocs pkgs;
+
           # treefmt --ci fails on any file its formatters would change, so
           # `nix flake check` catches what `nix fmt` would have fixed. The tree
           # root is explicit: there is no git checkout in the sandbox, and
@@ -108,6 +120,8 @@
               rustfmt
               rust-analyzer
               resvg
+              # `zola serve` in docs/ previews the site at 127.0.0.1:1111.
+              zola
               (formatter pkgs)
             ];
 

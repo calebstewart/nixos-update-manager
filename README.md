@@ -1,5 +1,11 @@
 # nixos-update-manager
 
+> [!WARNING]
+> This is built for my own machines and it is entirely AI slop. It should work
+> generally, but it is not a supported tool: no stability promises, no
+> compatibility promises, and no support for anyone else's setup. Use at your
+> own risk.
+
 A system-tray daemon for NixOS machines managed from a git flake. It checks
 whether `nix flake update` would change anything, builds the new system and
 home generation while showing progress in the tray icon, and applies the
@@ -8,6 +14,9 @@ result on request. Nothing is ever applied automatically.
 The daemon (`nixos-update-manager`) owns a StatusNotifierItem tray icon and a
 menu; a separate GTK4/libadwaita dialog (`nixos-update-review`) shows what an
 update changes before you build it and before you apply it.
+
+Full documentation, including installation and every configuration option:
+<https://calebstew.art/nixos-update-manager>.
 
 ## What an update looks like
 

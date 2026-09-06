@@ -1,0 +1,61 @@
+# Build the documentation site and publish it to GitHub Pages.
+#
+# Pages is configured for the "GitHub Actions" source, not a branch: nothing is
+# committed anywhere, the artifact this run uploads *is* the deployment.
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Two Pages deployments at once is not something to want, but neither is
+# cancelling a deployment that is already halfway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+# What actions/deploy-pages needs, and nothing else.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+
+      # No binary cache step. The site is zola plus a handful of markdown
+      # files; everything it needs substitutes from cache.nixos.org in seconds,
+      # and the crate is not built here at all.
+
+      # The same derivation `nix build .#docs` realizes locally, so what is
+      # deployed cannot drift from what was previewed.
+      - name: Build the site
+        run: nix build .#docs --print-build-logs
+
+      # upload-pages-artifact will not follow the symlink into the store, and
+      # the store is read-only, so the tree is copied out and made writable.
+      - name: Stage the site
+        run: |
+          cp -rL result site
+          chmod -R u+w site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
