@@ -114,6 +114,30 @@ Things that are the way they are on purpose:
   records and every `tray.update` makes ksni re-hash every pixmap, so the tray
   and notification are refreshed on a whole-percent change and at most once a
   second, with the boundaries (start, between the two builds, end) forced.
+- **Every notification either expires or has an owner.** A notification is
+  shown with `Timeout::Never` only when something is going to take it down:
+  the stage banner ("Checking for updates", "Applying updates") and the build's
+  progress bar last exactly as long as their stage, and the two actionable ones
+  -- the pending update's `Build` / `Apply now` and the failure's report
+  buttons -- are withdrawn when their button stops meaning anything (the build
+  or apply has started; the next success cleared the failure) and on quit,
+  where the channel behind every button is about to be dropped. Outcomes, which
+  nobody owns, carry a timeout instead. The exception is `Notifier::error`:
+  `Critical` is the one urgency the major servers refuse to expire, so a
+  timeout there would be ignored, and it reports something that already
+  happened, so no later transition withdraws it either.
+- **Owned notifications live in a `Slot`, and the two actionable ones wait on
+  an id rather than a handle.** `NotificationHandle::wait_for_action` consumes
+  the handle, so a thread parked in it is a notification nothing can close;
+  `notify_rust::handle_action` takes the id over its own connection and returns
+  on `NotificationClosed` too, which lets the worker thread close the handle
+  the slot still holds and end that wait. A slot holds one notification at a
+  time, so showing the built shape of an update takes down the unbuilt one. It
+  also carries an epoch bumped by every close, because those notifications
+  reach the bus from their own thread: a withdrawal that overtakes the show
+  suppresses it rather than leaving something on screen that was already meant
+  to be gone. The stage banner and the progress bar are additionally
+  `Hint::Transient`, so closing them leaves nothing in the notification centre.
 - **Blocked is a state, not an error.** Any `git status --porcelain
   --untracked-files=all` output blocks check, build and apply: the worktree
   builds from committed `main`, so uncommitted work would be invisible to the

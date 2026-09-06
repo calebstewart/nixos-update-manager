@@ -16,6 +16,7 @@ use nixos_update_manager::{BuildPlan, PackageChange, Scope};
 
 use crate::cancel::{CancelReason, Canceller};
 use crate::config::Config;
+use crate::icons::Icon;
 use crate::notify::{Notifier, ProgressNotification};
 use crate::review::Reviewer;
 use crate::state::{self, PendingUpdate, Progress, State, Summary};
@@ -309,6 +310,13 @@ impl Worker {
         }
     }
 
+    /// The daemon is quitting. Every notification it holds open is either a
+    /// stage that is no longer under way or a button wired to a channel with
+    /// nobody left to read it, so none of them outlive the tray.
+    pub fn shutdown(&self) {
+        self.notifier.close_all();
+    }
+
     /// How long the main loop may wait for a command before calling
     /// [`Worker::tick`].
     pub fn next_wakeup(&self) -> Duration {
@@ -408,6 +416,14 @@ impl Worker {
     /// tray is only told whether one exists; the report stays here.
     fn set_last_error(&mut self, report: Option<ErrorReport>) {
         let has_error = report.is_some();
+        // The failure notification's two buttons open the report this clears,
+        // so it goes with it -- `Worker::troubleshoot` would log and return,
+        // and the tray has already dropped the same two entries. A *new*
+        // failure needs no close here: `Notifier::failure` shows into the same
+        // slot, which takes the old one down on its own.
+        if !has_error {
+            self.notifier.clear_failure();
+        }
         self.last_error = report;
         self.tray.update(move |tray| tray.set_has_error(has_error));
     }
@@ -519,13 +535,19 @@ impl Worker {
         let failing_already = self.last_error.is_some();
         self.set_state(State::Checking);
         if manual {
-            self.notifier.info(
+            self.notifier.status(
+                Icon::Checking,
                 "Checking for updates",
                 "Updating flake inputs and evaluating the new configuration.",
             );
         }
 
-        match self.do_check(previous.as_ref()) {
+        let outcome = self.do_check(previous.as_ref());
+        // Ahead of every arm below: the check is over whichever way it went,
+        // and what follows is the outcome's own notification.
+        self.notifier.clear_status();
+
+        match outcome {
             Ok(CheckOutcome::UpToDate) => {
                 let checked_at = chrono::Local::now().format("%H:%M").to_string();
                 self.set_last_error(None);
@@ -558,11 +580,17 @@ impl Worker {
                     log::warn!("failed to persist state: {err:#}");
                 }
                 self.set_last_error(None);
+                let auto = !manual && self.cfg.auto_build;
                 // New by construction -- `Unchanged` caught the same update --
-                // so a scheduled check notifies too.
-                self.notifier.updates_available(&pending);
+                // so a scheduled check notifies too. Not under `autoBuild`,
+                // though: its one action is Build, and the build starts on the
+                // next line, so the offer would be answered before it was made.
+                // The progress notification is what the user sees instead.
+                if !auto {
+                    self.notifier.updates_available(&pending);
+                }
                 self.set_state(State::UpdatesAvailable(pending));
-                if !manual && self.cfg.auto_build {
+                if auto {
                     self.build(Trigger::Scheduled);
                 }
             }
@@ -675,6 +703,10 @@ impl Worker {
                 return;
             }
         };
+        // Its "Build" button is what may have brought us here, and either way
+        // the offer is now being carried out; the progress notification takes
+        // its place.
+        self.notifier.clear_pending();
         self.canceller.reset();
         let plan = pending.plan.unwrap_or_default();
         self.set_state(State::Building(Progress {
@@ -844,10 +876,19 @@ impl Worker {
                 return;
             }
         };
+        // Same as `build`: the "Apply now" button is being acted on.
+        self.notifier.clear_pending();
         self.set_state(State::Applying);
-        self.notifier.info("Applying updates", mode.describe());
+        self.notifier
+            .status(Icon::Applying, "Applying updates", mode.describe());
 
-        match self.do_apply(&pending, mode) {
+        let outcome = self.do_apply(&pending, mode);
+        // `run0` and the home activation can take minutes; the notification
+        // stands for exactly that window and comes down here, whichever way it
+        // went, so the outcome below is the only one left standing.
+        self.notifier.clear_status();
+
+        match outcome {
             Ok(ApplyOutcome::Applied {
                 os_done,
                 home_done,

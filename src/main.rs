@@ -105,6 +105,7 @@ fn main() -> Result<()> {
         }
     }
 
+    worker.shutdown();
     tray.shutdown();
     Ok(())
 }
